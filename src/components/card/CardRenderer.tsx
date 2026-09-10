@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Company, Employee, CardTemplate, CardCustomization } from '../../types';
 import { generateQrCodeDataUrl, getVerificationUrl, generateCryptoHash } from '../../utils/qrCodeHelper';
+import { generateEncryptedQrPayload } from '../../utils/secureQrHelper';
 import {
   Shield,
   ShieldCheck,
@@ -57,15 +58,28 @@ export const CardRenderer: React.FC<CardRendererProps> = ({
   const accent = cust.accentColor || template.defaultAccentColor || company.accentColor || '#f59e0b';
   const isVertical = template.orientation === 'vertical' || cust.orientation === 'vertical';
 
-  const verificationUrl = getVerificationUrl(employee.token, company.verificationBaseUrl);
-  const cryptoHash = generateCryptoHash(employee.id, employee.token);
+  const encryptedQr = useMemo(() => {
+    return generateEncryptedQrPayload(employee, company);
+  }, [employee, company]);
+
+  const isEncryptedQr = cust.qrContentType === 'encrypted_payload';
+  const qrTargetContent = useMemo(() => {
+    if (!isEncryptedQr) {
+      return getVerificationUrl(employee.token, company.verificationBaseUrl);
+    }
+    return cust.qrPayloadFormat === 'raw_encrypted'
+      ? encryptedQr.encryptedString
+      : encryptedQr.smartVerificationUrl;
+  }, [isEncryptedQr, cust.qrPayloadFormat, employee.token, company.verificationBaseUrl, encryptedQr]);
+
+  const cryptoHash = isEncryptedQr ? encryptedQr.displayHash : generateCryptoHash(employee.id, employee.token);
 
   useEffect(() => {
     let isMounted = true;
-    generateQrCodeDataUrl(verificationUrl, {
+    generateQrCodeDataUrl(qrTargetContent, {
       darkColor: template.id === 'executive-dark' || template.id === 'black-gold' ? '#000000' : '#0f172a',
       lightColor: '#ffffff',
-      width: 250,
+      width: 280,
       margin: 1,
     }).then((url) => {
       if (isMounted) setQrDataUrl(url);
@@ -73,7 +87,7 @@ export const CardRenderer: React.FC<CardRendererProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [verificationUrl, template.id]);
+  }, [qrTargetContent, template.id]);
 
   useEffect(() => {
     setIsFlipped(side === 'back');

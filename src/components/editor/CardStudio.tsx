@@ -64,6 +64,7 @@ import {
 } from 'lucide-react';
 import { NfcEncoderModal } from './NfcEncoderModal';
 import { isWebNfcSupported, compileNfcData } from '../../utils/nfcHelper';
+import { generateEncryptedQrPayload } from '../../utils/secureQrHelper';
 
 interface CardStudioProps {
   currentCompany: Company;
@@ -79,6 +80,7 @@ interface CardStudioProps {
   onUpdateEmployee: (employee: Employee) => void;
   onUpdateCompany: (company: Company) => void;
   onNavigateToPrintSheet: () => void;
+  onNavigateToVerification?: (prefillPayload?: string) => void;
 }
 
 export const CardStudio: React.FC<CardStudioProps> = ({
@@ -95,8 +97,10 @@ export const CardStudio: React.FC<CardStudioProps> = ({
   onUpdateEmployee,
   onUpdateCompany,
   onNavigateToPrintSheet,
+  onNavigateToVerification,
 }) => {
   const [zoomScale, setZoomScale] = useState<number>(1);
+  const [copiedSecurePayload, setCopiedSecurePayload] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<
     'profile' | 'elements' | 'custom_fields' | 'layers' | 'colors_watermark' | 'photo_studio' | 'manufacturer' | 'nfc' | 'ai' | 'preflight'
   >('profile');
@@ -1475,32 +1479,172 @@ export const CardStudio: React.FC<CardStudioProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
                   4. Sécurité & Signatures
                 </span>
-                <div className="grid grid-cols-1 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <div className="grid grid-cols-1 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-800">QR Code Cryptographique</span>
+                    <span className="text-xs font-semibold text-slate-800 flex items-center space-x-1.5">
+                      <QrIcon className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Afficher le QR Code sur la carte</span>
+                    </span>
                     <input
                       type="checkbox"
                       checked={customization.showQrCode !== false}
                       onChange={(e) => setCustomization({ ...customization, showQrCode: e.target.checked })}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                      className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
                   </div>
-                  <div className="flex items-center justify-between">
+
+                  {/* QR Code Security Configuration */}
+                  {customization.showQrCode !== false && (
+                    <div className="mt-1 pt-2.5 border-t border-slate-200/80 space-y-2.5">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block uppercase tracking-wider">
+                          Type de Contenu du QR Code
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5 p-1 bg-white rounded-lg border border-slate-200 text-xs">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomization({
+                                ...customization,
+                                qrContentType: 'encrypted_payload',
+                              })
+                            }
+                            className={`py-1.5 px-2 rounded-md font-bold text-center transition-all flex items-center justify-center space-x-1 cursor-pointer ${
+                              customization.qrContentType !== 'standard_url'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Lock className="w-3 h-3" />
+                            <span>QR Chiffré Sécurisé</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomization({
+                                ...customization,
+                                qrContentType: 'standard_url',
+                              })
+                            }
+                            className={`py-1.5 px-2 rounded-md font-bold text-center transition-all flex items-center justify-center space-x-1 cursor-pointer ${
+                              customization.qrContentType === 'standard_url'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>URL Standard</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Advanced Settings when Encrypted Payload is active */}
+                      {customization.qrContentType !== 'standard_url' && (() => {
+                        const encryptedSample = generateEncryptedQrPayload(currentEmployee, currentCompany);
+                        return (
+                          <div className="p-2.5 bg-indigo-50/70 rounded-lg border border-indigo-100 text-xs space-y-2">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-bold text-indigo-900 flex items-center space-x-1">
+                                <Lock className="w-3 h-3 text-indigo-600" />
+                                <span>Cryptage AES + Hash SHA-256</span>
+                              </span>
+                              <span className="text-[10px] bg-indigo-200/80 text-indigo-800 font-mono px-1.5 py-0.5 rounded font-bold">
+                                FIPS 180-4
+                              </span>
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-500 font-semibold block">
+                                Format d'encodage du QR :
+                              </span>
+                              <div className="flex gap-2">
+                                <label className="flex items-center space-x-1.5 text-[11px] text-slate-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="qrFormat"
+                                    checked={customization.qrPayloadFormat !== 'raw_encrypted'}
+                                    onChange={() =>
+                                      setCustomization({ ...customization, qrPayloadFormat: 'smart_url' })
+                                    }
+                                    className="text-indigo-600 focus:ring-indigo-500"
+                                  />
+                                  <span>URL Intelligente (Smartphone)</span>
+                                </label>
+                                <label className="flex items-center space-x-1.5 text-[11px] text-slate-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="qrFormat"
+                                    checked={customization.qrPayloadFormat === 'raw_encrypted'}
+                                    onChange={() =>
+                                      setCustomization({ ...customization, qrPayloadFormat: 'raw_encrypted' })
+                                    }
+                                    className="text-indigo-600 focus:ring-indigo-500"
+                                  />
+                                  <span>Payload Brut (Lecteur 2D)</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Live Hash Pill */}
+                            <div className="bg-white p-2 rounded border border-indigo-100 font-mono text-[10px] text-slate-700 flex items-center justify-between">
+                              <div>
+                                <span className="text-slate-400 block text-[9px] uppercase">Empreinte SHA-256 Calculée :</span>
+                                <span className="font-bold text-indigo-700">{encryptedSample.displayHash}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(encryptedSample.encryptedString);
+                                  setCopiedSecurePayload(true);
+                                  setTimeout(() => setCopiedSecurePayload(false), 2000);
+                                }}
+                                className="text-slate-500 hover:text-indigo-600 flex items-center space-x-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 cursor-pointer"
+                                title="Copier le payload chiffré brut"
+                              >
+                                {copiedSecurePayload ? (
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                                <span>{copiedSecurePayload ? 'Copié' : 'Copier'}</span>
+                              </button>
+                            </div>
+
+                            {/* Direct navigation to verification portal */}
+                            {onNavigateToVerification && (
+                              <button
+                                type="button"
+                                onClick={() => onNavigateToVerification(encryptedSample.smartVerificationUrl)}
+                                className="w-full py-1.5 px-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-bold transition-colors flex items-center justify-center space-x-1.5 shadow-2xs cursor-pointer"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                <span>Vérifier ce QR dans le Portail de Vérification</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
                     <span className="text-xs font-medium text-slate-800">Signature Autorité Émettrice</span>
                     <input
                       type="checkbox"
                       checked={customization.showManagerSignature !== false}
                       onChange={(e) => setCustomization({ ...customization, showManagerSignature: e.target.checked })}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                      className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
                   </div>
+
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-slate-800">Empreinte de Sécurité (Hash)</span>
                     <input
                       type="checkbox"
                       checked={customization.showSecurityHash !== false}
                       onChange={(e) => setCustomization({ ...customization, showSecurityHash: e.target.checked })}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                      className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
                   </div>
                 </div>

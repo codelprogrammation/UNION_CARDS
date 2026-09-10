@@ -35,6 +35,9 @@ const DEFAULT_CUSTOMIZATION: CardCustomization = {
   showManagerSignature: true,
   showEmployeeSignature: true,
   showQrCode: true,
+  qrContentType: 'encrypted_payload',
+  qrPayloadFormat: 'smart_url',
+  qrIncludeHash: true,
   showBarcode: true,
   showEmergencyContact: true,
   showDepartment: true,
@@ -144,6 +147,7 @@ export function App() {
   const [currentView, setCurrentView] = useState<
     'gallery' | 'studio' | 'print' | 'employees' | 'verification' | 'analytics'
   >('gallery');
+  const [verificationPrefill, setVerificationPrefill] = useState<string>('');
 
   // Persistence side-effects
   useEffect(() => {
@@ -447,6 +451,10 @@ export function App() {
             onUpdateEmployee={handleUpdateEmployee}
             onUpdateCompany={handleUpdateCompany}
             onNavigateToPrintSheet={() => setCurrentView('print')}
+            onNavigateToVerification={(prefill) => {
+              if (prefill) setVerificationPrefill(prefill);
+              setCurrentView('verification');
+            }}
           />
         )}
 
@@ -477,7 +485,11 @@ export function App() {
         )}
 
         {currentView === 'verification' && (
-          <VerificationPortal companies={companies} employees={employees} />
+          <VerificationPortal
+            companies={companies}
+            employees={employees}
+            initialInput={verificationPrefill}
+          />
         )}
 
         {currentView === 'analytics' && (

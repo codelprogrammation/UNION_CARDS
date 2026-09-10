@@ -296,6 +296,9 @@ export interface CardCustomization {
   managerSignatoryName?: string;
   managerSignatoryTitle?: string;
   showQrCode?: boolean;
+  qrContentType?: 'standard_url' | 'encrypted_payload'; // 'standard_url' ou 'encrypted_payload'
+  qrPayloadFormat?: 'smart_url' | 'raw_encrypted';      // URL intelligente avec payload chiffré ou chaîne brute
+  qrIncludeHash?: boolean;                             // Inclure l'empreinte de sécurité SHA-256 vérifiable
   showBarcode?: boolean;
   showEmergencyContact?: boolean;
   showDepartment?: boolean;
