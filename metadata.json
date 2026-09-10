@@ -1,0 +1,10 @@
+{
+  "name": "UNIONCOMPANY ID Card Studio",
+  "description": "Plateforme professionnelle complète de création, personnalisation, gestion, vérification par QR code et impression de cartes d'identification d'entreprise.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
