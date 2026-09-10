@@ -300,7 +300,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     defaultPhotoShape: 'rounded',
     defaultQrPosition: 'bottom_right',
     isPopular: true,
-    isNew: true,
   },
   {
     id: 'diagonal-executive',
@@ -370,7 +369,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     defaultQrPosition: 'bottom_right',
     hasGuillochePattern: true,
     isPopular: true,
-    isNew: true,
   },
   {
     id: 'executive-signature',
@@ -440,7 +438,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     defaultPhotoShape: 'hexagon',
     defaultQrPosition: 'bottom_right',
     isPopular: true,
-    isNew: true,
   },
   {
     id: 'company-pattern',
@@ -510,7 +507,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     defaultPhotoShape: 'round',
     defaultQrPosition: 'bottom_right',
     isPopular: true,
-    isNew: true,
   },
   {
     id: 'corporate-blueprint',
@@ -581,7 +577,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     defaultPhotoShape: 'rounded',
     defaultQrPosition: 'bottom_right',
     isPopular: true,
-    isNew: true,
   },
   {
     id: 'executive-card',
@@ -634,7 +629,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     defaultPhotoShape: 'vertical_portrait',
     defaultQrPosition: 'bottom_right',
     isPopular: true,
-    isNew: true,
   },
   {
     id: 'visitor-pass',

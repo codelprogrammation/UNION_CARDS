@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Company, Employee, CardTemplate, CardCustomization } from '../../types';
 import { generateQrCodeDataUrl, getVerificationUrl, generateCryptoHash } from '../../utils/qrCodeHelper';
 import { generateEncryptedQrPayload } from '../../utils/secureQrHelper';
+import { getGenderAwarePosition } from '../../utils/genderHelper';
 import {
   Shield,
   ShieldCheck,
@@ -73,6 +74,19 @@ export const CardRenderer: React.FC<CardRendererProps> = ({
   }, [isEncryptedQr, cust.qrPayloadFormat, employee.token, company.verificationBaseUrl, encryptedQr]);
 
   const cryptoHash = isEncryptedQr ? encryptedQr.displayHash : generateCryptoHash(employee.id, employee.token);
+
+  // Normalize employee: dynamic gender-adapted job title & professional portrait avatar fallback
+  const normalizedEmployee = useMemo<Employee>(() => {
+    const defaultAvatar = employee.gender === 'M'
+      ? 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&h=400&q=80'
+      : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&h=400&q=80';
+
+    return {
+      ...employee,
+      photoUrl: employee.photoUrl || defaultAvatar,
+      position: getGenderAwarePosition(employee.position || '', employee.gender),
+    };
+  }, [employee]);
 
   useEffect(() => {
     let isMounted = true;
@@ -165,7 +179,7 @@ export const CardRenderer: React.FC<CardRendererProps> = ({
           {renderTemplateLayout({
             templateId: template.id,
             company,
-            employee,
+            employee: normalizedEmployee,
             side: currentSide,
             primary,
             secondary,
@@ -219,7 +233,8 @@ interface TemplateLayoutProps {
 }
 
 function renderTemplateLayout(props: TemplateLayoutProps) {
-  const { templateId, side } = props;
+  const { templateId, side, customization } = props;
+  const accent = customization?.accentColor;
 
   if (side === 'back') {
     return <TemplateBackLayout {...props} />;
@@ -268,11 +283,184 @@ function renderTemplateLayout(props: TemplateLayoutProps) {
       return <HospitalityFront {...props} />;
     case 'ngo-humanitarian':
       return <NgoFront {...props} />;
+    // ------------------------------------------------------------------
+    // FACTORISATION DES MODÈLES 21 À 28 SOUS UN SEUL COMPOSANT DYNAMIQUE
+    // AVEC VARIABLE DE COULEUR D'ACCENTUATION (accentColor)
+    // ------------------------------------------------------------------
+    case 'watermark-corporate':
+      return <ModularBannerFront {...props} accentColor={accent || '#f59e0b'} />;
+    case 'diagonal-executive':
+      return <ModularBannerFront {...props} accentColor={accent || '#60a5fa'} />;
+    case 'vertical-brand':
+      return <ModularBannerFront {...props} accentColor={accent || '#14b8a6'} />;
+    case 'double-logo-watermark':
+      return <ModularBannerFront {...props} accentColor={accent || '#fbbf24'} />;
+    case 'security-grid':
+      return <ModularBannerFront {...props} accentColor={accent || '#ef4444'} />;
+    case 'executive-signature':
+      return <ModularBannerFront {...props} accentColor={accent || '#d4af37'} />;
+    case 'corporate-frame':
+      return <ModularBannerFront {...props} accentColor={accent || '#38bdf8'} />;
+    case 'premium-stripe':
+      return <ModularBannerFront {...props} accentColor={accent || '#f59e0b'} />;
     case 'corporate-premium':
     default:
       return <CorporatePremiumFront {...props} />;
   }
 }
+
+// -------------------------------------------------------------
+// COMPOSANT MODULAIRE FACTORISÉ (MODÈLES 21 À 28)
+// Accepte une variable de couleur d'accentuation (accentColor)
+// -------------------------------------------------------------
+interface ModularBannerFrontProps extends TemplateLayoutProps {
+  accentColor?: string;
+}
+
+const ModularBannerFront: React.FC<ModularBannerFrontProps> = ({
+  company,
+  employee,
+  primary,
+  secondary,
+  accent,
+  accentColor,
+}) => {
+  const dynamicAccent = accentColor || accent || '#f59e0b';
+  const displayTitle = getGenderAwarePosition(employee.position, employee.gender);
+
+  return (
+    <div className="w-full h-full flex flex-col justify-between relative bg-white overflow-hidden font-sans select-none">
+      {/* Dynamic Top Banner with accentColor */}
+      <div
+        className="w-full px-4 py-2 flex items-center justify-between text-white relative z-10 shadow-xs"
+        style={{
+          background: `linear-gradient(135deg, ${primary} 0%, ${primary} 70%, ${dynamicAccent} 100%)`,
+          borderBottom: `2.5px solid ${dynamicAccent}`,
+        }}
+      >
+        <div className="flex items-center space-x-2.5 overflow-hidden">
+          <img
+            src={company.logoUrl}
+            alt="Logo"
+            className="w-8 h-8 rounded-full bg-white p-0.5 object-cover shadow-xs border border-white/30 shrink-0"
+          />
+          <div className="overflow-hidden">
+            <h3 className="font-extrabold text-[12px] uppercase tracking-wide text-white line-clamp-1">
+              {company.name}
+            </h3>
+            <p className="text-[7.5px] text-slate-200 tracking-wider font-medium line-clamp-1">
+              {company.slogan || 'RÉPUBLIQUE DÉMOCRATIQUE DU CONGO'}
+            </p>
+          </div>
+        </div>
+
+        {/* Top-Right Accent Badge */}
+        <div
+          className="text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-xs text-slate-950 font-mono tracking-wider shrink-0"
+          style={{ backgroundColor: dynamicAccent }}
+        >
+          {employee.cardType === 'service' ? 'SERVICE' : employee.cardType === 'access' ? 'ACCÈS' : 'OFFICIEL'}
+        </div>
+      </div>
+
+      {/* Subtle Background Watermark */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.05] z-0">
+        <img src={company.logoUrl} alt="" className="w-44 h-44 object-contain grayscale" />
+      </div>
+
+      {/* Main Body */}
+      <div className="px-4 py-2 flex-1 flex items-center space-x-4 relative z-10">
+        {/* Photo Container with Accent Border & Centered Professional Portrait */}
+        <div className="relative shrink-0">
+          <div
+            className="w-[84px] h-[104px] rounded-lg overflow-hidden border-2 shadow-md bg-slate-100 relative"
+            style={{ borderColor: dynamicAccent }}
+          >
+            <img
+              src={employee.photoUrl}
+              alt={`${employee.firstName} ${employee.lastName}`}
+              className="w-full h-full object-cover"
+            />
+            <div
+              className="absolute bottom-1 right-1 w-4 h-4 rounded-full flex items-center justify-center shadow-xs border border-white"
+              style={{ backgroundColor: dynamicAccent }}
+            >
+              <ShieldCheck className="w-2.5 h-2.5 text-slate-950" />
+            </div>
+          </div>
+        </div>
+
+        {/* Collaborator Details */}
+        <div className="flex-1 flex flex-col justify-center overflow-hidden">
+          <div className="mb-1">
+            <span
+              className="text-[7.5px] uppercase tracking-widest font-extrabold block"
+              style={{ color: dynamicAccent }}
+            >
+              {employee.category || 'COLLABORATEUR HABILITÉ'}
+            </span>
+            <h2 className="font-extrabold text-slate-900 text-[14px] leading-tight uppercase tracking-tight line-clamp-1">
+              {employee.firstName} {employee.lastName}
+            </h2>
+            <p
+              className="font-bold text-[11px] leading-snug line-clamp-1"
+              style={{ color: primary }}
+            >
+              {displayTitle}
+            </p>
+          </div>
+
+          {/* Info Matrix */}
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[8px] bg-slate-50/90 p-1.5 rounded-md border border-slate-200">
+            <div>
+              <span className="text-slate-400 block text-[6.5px] uppercase font-bold tracking-wider">
+                Matricule
+              </span>
+              <span className="font-mono font-bold text-slate-900 line-clamp-1">
+                {employee.employeeNumber}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[6.5px] uppercase font-bold tracking-wider">
+                Département
+              </span>
+              <span className="font-semibold text-slate-700 line-clamp-1">
+                {employee.department}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[6.5px] uppercase font-bold tracking-wider">
+                Émission
+              </span>
+              <span className="font-medium text-slate-600">{employee.issueDate}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[6.5px] uppercase font-bold tracking-wider">
+                Expiration
+              </span>
+              <span className="font-bold text-slate-900">{employee.expiryDate}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Dynamic Bottom Stripe with accentColor */}
+      <div
+        className="w-full px-4 py-1 flex items-center justify-between text-[7px] text-white relative z-10"
+        style={{
+          background: `linear-gradient(90deg, ${primary} 0%, ${primary} 70%, ${dynamicAccent} 100%)`,
+        }}
+      >
+        <span className="tracking-wider uppercase font-semibold line-clamp-1">
+          {company.legalNotice || 'CARTE PROFESSIONNELLE STRICTEMENT PERSONNELLE'}
+        </span>
+        <span className="font-mono font-bold shrink-0 ml-2" style={{ color: dynamicAccent }}>
+          ISO-7810
+        </span>
+      </div>
+    </div>
+  );
+};
 
 // -------------------------------------------------------------
 // 1. CORPORATE PREMIUM (Recto)
@@ -1002,14 +1190,14 @@ const TechnologyFront: React.FC<TemplateLayoutProps> = ({
       <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#38bdf8_1px,transparent_1px),linear-gradient(to_bottom,#38bdf8_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
 
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-cyan-500/30 pb-1.5 relative z-10">
+      <div className="flex items-center justify-between border-b border-cyan-500/40 pb-1.5 relative z-10">
         <div className="flex items-center space-x-2">
           <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
-          <span className="font-bold text-xs text-cyan-300 uppercase tracking-wider font-sans">
+          <span className="font-bold text-xs text-white uppercase tracking-wider font-sans">
             {company.name}
           </span>
         </div>
-        <span className="text-[8px] text-cyan-400 bg-cyan-950/80 border border-cyan-500/50 px-2 py-0.5 rounded">
+        <span className="text-[8px] text-cyan-300 font-bold bg-cyan-950/90 border border-cyan-500/60 px-2 py-0.5 rounded">
           DEV // PASS 2.0
         </span>
       </div>
@@ -1025,7 +1213,7 @@ const TechnologyFront: React.FC<TemplateLayoutProps> = ({
         </div>
 
         <div className="flex-1 overflow-hidden font-sans">
-          <span className="text-[7.5px] font-mono text-cyan-400 block mb-0.5">
+          <span className="text-[7.5px] font-mono text-cyan-300 font-bold block mb-0.5">
             // MATRICULE: {employee.employeeNumber}
           </span>
           <h2 className="font-black text-white text-[15px] leading-tight uppercase tracking-tight line-clamp-1">
@@ -1035,23 +1223,25 @@ const TechnologyFront: React.FC<TemplateLayoutProps> = ({
             &gt; {employee.position}
           </p>
 
-          <div className="space-y-1 font-mono text-[8px] bg-slate-900/90 p-1.5 rounded border border-slate-800">
-            <div className="flex justify-between">
-              <span className="text-slate-500">DEPT:</span>
-              <span className="text-slate-300">{employee.department}</span>
+          <div className="space-y-1 font-mono text-[8px] bg-slate-900/90 p-1.5 rounded border border-slate-700">
+            <div className="flex justify-between items-center">
+              <span className="text-[#E2E8F0] font-semibold">DEPT:</span>
+              <span className="text-white font-bold">{employee.department}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">EXP_DATE:</span>
-              <span className="text-cyan-400 font-bold">{employee.expiryDate}</span>
+            <div className="flex justify-between items-center">
+              <span className="text-[#E2E8F0] font-semibold">EXP_DATE:</span>
+              <span className="text-white font-bold bg-cyan-950/90 px-1.5 py-0.5 rounded border border-cyan-500/40">
+                {employee.expiryDate}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-[7px] text-slate-500 pt-1 border-t border-slate-900 relative z-10 font-mono">
-        <span>BUILD: 2026.08.PROD</span>
-        <span className="text-cyan-400">UNINCOMPANY TECH ENGINE</span>
+      <div className="flex items-center justify-between text-[7.5px] text-[#E2E8F0] pt-1 border-t border-slate-800 relative z-10 font-mono">
+        <span className="text-[#E2E8F0]">BUILD: 2026.08.PROD</span>
+        <span className="text-cyan-300 font-bold">UNINCOMPANY TECH ENGINE</span>
       </div>
     </div>
   );
@@ -1067,6 +1257,14 @@ const MedicalFront: React.FC<TemplateLayoutProps> = ({
   secondary,
   accent,
 }) => {
+  const isMedicalField =
+    (employee.department && /médic|santé|soin|urgenc|hospit/i.test(employee.department)) ||
+    (employee.position && /médecin|docteur|infirm|chirurg|urgentiste/i.test(employee.position));
+
+  const roleCategory = isMedicalField
+    ? 'CORPS MÉDICAL HABILITÉ'
+    : (employee.category || 'COLLABORATEUR HABILITÉ');
+
   return (
     <div className="w-full h-full flex flex-col justify-between p-3.5 bg-slate-50 text-slate-900 font-sans relative overflow-hidden">
       {/* Top Medical Header */}
@@ -1080,13 +1278,19 @@ const MedicalFront: React.FC<TemplateLayoutProps> = ({
               {company.name}
             </h3>
             <p className="text-[7.5px] text-teal-700 font-medium">
-              PERSONNEL MÉDICAL & HOSPITALIER HABILITÉ
+              CARTE D'IDENTITÉ PROFESSIONNELLE
             </p>
           </div>
         </div>
-        <div className="bg-red-600 text-white font-black text-[10px] px-2 py-0.5 rounded shadow-sm">
-          {employee.bloodGroup || 'O+'}
-        </div>
+        {employee.bloodGroup ? (
+          <div className="bg-red-600 text-white font-black text-[10px] px-2 py-0.5 rounded shadow-sm font-mono">
+            {employee.bloodGroup}
+          </div>
+        ) : (
+          <div className="bg-teal-700 text-white font-bold text-[8.5px] px-2 py-0.5 rounded shadow-sm font-mono">
+            {employee.employeeNumber}
+          </div>
+        )}
       </div>
 
       {/* Body */}
@@ -1094,14 +1298,14 @@ const MedicalFront: React.FC<TemplateLayoutProps> = ({
         <div className="w-[84px] h-[104px] rounded-lg border-2 border-teal-600 shadow-md overflow-hidden bg-slate-200 flex-shrink-0">
           <img
             src={employee.photoUrl}
-            alt="Doctor"
+            alt={`${employee.firstName} ${employee.lastName}`}
             className="w-full h-full object-cover"
           />
         </div>
 
         <div className="flex-1 overflow-hidden">
           <span className="text-[7.5px] uppercase tracking-wider text-teal-700 font-bold block">
-            CORPS MÉDICAL
+            {roleCategory}
           </span>
           <h2 className="font-black text-slate-900 text-[14.5px] leading-tight uppercase line-clamp-1">
             {employee.firstName} {employee.lastName}
@@ -1125,7 +1329,7 @@ const MedicalFront: React.FC<TemplateLayoutProps> = ({
             </div>
             <div>
               <span className="text-teal-700 block text-[6.5px] uppercase font-bold">URGENCE</span>
-              <span className="font-bold text-red-600">{employee.emergencyPhone || company.emergencyPhone}</span>
+              <span className="font-bold text-red-600 line-clamp-1">{employee.emergencyPhone || company.emergencyPhone || company.phone}</span>
             </div>
           </div>
         </div>
@@ -1807,7 +2011,7 @@ const FutureIdFront: React.FC<TemplateLayoutProps> = ({
         </div>
 
         <div className="flex-1 overflow-hidden font-sans">
-          <span className="text-[7.5px] font-mono text-cyan-500 block">
+          <span className="text-[7.5px] font-mono text-cyan-400 font-bold block">
             HEX:// {employee.employeeNumber}
           </span>
           <h2 className="font-black text-white text-[15px] leading-tight uppercase line-clamp-1">
@@ -1816,15 +2020,28 @@ const FutureIdFront: React.FC<TemplateLayoutProps> = ({
           <p className="font-bold text-cyan-300 text-[11px] line-clamp-1 mb-1 font-mono">
             {employee.position}
           </p>
-          <span className="text-[8.5px] text-slate-400 block line-clamp-1 font-mono">
-            SEC_LEVEL: ALPHA-9
-          </span>
+          <div className="space-y-1 font-mono text-[8px] bg-slate-950 p-1.5 rounded border border-cyan-900/80">
+            <div className="flex justify-between items-center">
+              <span className="text-[#E2E8F0] font-semibold">SERVICE:</span>
+              <span className="text-white font-bold">{employee.department}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[#E2E8F0] font-semibold">EXP_DATE:</span>
+              <span className="text-white font-bold bg-cyan-950 px-1 rounded border border-cyan-500/50">
+                {employee.expiryDate || '2028-12-31'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[#E2E8F0] font-semibold">SÛRETÉ:</span>
+              <span className="text-[#FFFFFF] font-bold">ALPHA-9 (VALIDE)</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-[7px] text-cyan-600 border-t border-cyan-900 pt-1 font-mono">
-        <span>CYBER PROTOCOL 2026</span>
-        <span className="text-cyan-400 font-bold">STATUS: OK</span>
+      <div className="flex items-center justify-between text-[7.5px] text-[#E2E8F0] border-t border-cyan-900 pt-1 font-mono">
+        <span className="text-[#E2E8F0]">CYBER PROTOCOL 2026</span>
+        <span className="text-cyan-300 font-bold">STATUS: OK</span>
       </div>
     </div>
   );

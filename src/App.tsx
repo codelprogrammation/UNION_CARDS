@@ -476,6 +476,12 @@ export function App() {
             onAddEmployee={handleAddEmployee}
             onUpdateEmployee={handleUpdateEmployee}
             onDeleteEmployee={handleDeleteEmployee}
+            onRestoreEmployees={(restoredList) => {
+              setEmployees(restoredList);
+              if (restoredList.length > 0) {
+                setSelectedEmployeeId(restoredList[0].id);
+              }
+            }}
             onSelectEmployeeForStudio={(emp: Employee) => {
               setSelectedEmployeeId(emp.id);
               setSelectedCompanyId(emp.companyId);

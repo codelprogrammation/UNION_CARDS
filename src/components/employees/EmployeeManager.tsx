@@ -2,6 +2,15 @@ import React, { useState, useRef } from 'react';
 import { Company, Employee, CardTemplate } from '../../types';
 import { generateSecureToken } from '../../utils/qrCodeHelper';
 import {
+  DatabaseBackupEnvelope,
+  JsonVerificationReport,
+  CorruptedRecordDetail,
+  JsonStructuralIssue,
+  exportEmployeeDatabaseToJson,
+  validateAndParseBackupJson,
+  mergeEmployeeDatabases,
+} from '../../utils/dataPersistence';
+import {
   UserPlus,
   Search,
   Upload,
@@ -28,6 +37,16 @@ import {
   Sparkles,
   CheckCircle2,
   PenTool,
+  FileJson,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+  Info,
+  ShieldX,
+  Sliders,
 } from 'lucide-react';
 import { SignaturePad } from './SignaturePad';
 
@@ -39,6 +58,7 @@ interface EmployeeManagerProps {
   onUpdateEmployee: (employee: Employee) => void;
   onDeleteEmployee: (id: string) => void;
   onSelectEmployeeForStudio: (employee: Employee) => void;
+  onRestoreEmployees?: (employees: Employee[]) => void;
 }
 
 export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
@@ -49,16 +69,28 @@ export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
   onUpdateEmployee,
   onDeleteEmployee,
   onSelectEmployeeForStudio,
+  onRestoreEmployees,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [isMassPhotoModalOpen, setIsMassPhotoModalOpen] = useState(false);
   const [isReplaceCardModalOpen, setIsReplaceCardModalOpen] = useState(false);
   const [employeeToReplace, setEmployeeToReplace] = useState<Employee | null>(null);
   const [replacementReason, setReplacementReason] = useState<string>('Carte perdue');
+
+  // JSON Data Persistence State
+  const [jsonInputText, setJsonInputText] = useState('');
+  const [jsonFileName, setJsonFileName] = useState('');
+  const [jsonValidationResult, setJsonValidationResult] = useState<JsonVerificationReport | null>(null);
+  const [jsonRestoreMode, setJsonRestoreMode] = useState<'merge' | 'replace'>('merge');
+  const [isDraggingJson, setIsDraggingJson] = useState(false);
+  const [showDetailedAudit, setShowDetailedAudit] = useState(false);
+  const [ignoreCorrupted, setIgnoreCorrupted] = useState(true);
+  const jsonFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [activeFormTab, setActiveFormTab] = useState<'profile' | 'security_privacy'>('profile');
@@ -540,6 +572,166 @@ export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
     setImportCsvText('');
   };
 
+  // JSON Data Persistence Handlers
+  const handleExportJson = () => {
+    exportEmployeeDatabaseToJson(company, employees);
+  };
+
+  const handleJsonFileSelect = (file: File) => {
+    setJsonFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = (event.target?.result as string) || '';
+      setJsonInputText(text);
+      const validation = validateAndParseBackupJson(text, company.id);
+      setJsonValidationResult(validation);
+      if (
+        validation.corruptedRecordsCount > 0 ||
+        validation.issues.some((i) => i.severity === 'error' || i.severity === 'warning')
+      ) {
+        setShowDetailedAudit(true);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleJsonTextChange = (text: string) => {
+    setJsonInputText(text);
+    if (!text.trim()) {
+      setJsonValidationResult(null);
+      return;
+    }
+    const validation = validateAndParseBackupJson(text, company.id);
+    setJsonValidationResult(validation);
+    if (
+      validation.corruptedRecordsCount > 0 ||
+      validation.issues.some((i) => i.severity === 'error' || i.severity === 'warning')
+    ) {
+      setShowDetailedAudit(true);
+    }
+  };
+
+  const handleDownloadTemplateJson = () => {
+    const templateData = {
+      app: 'UNINCOMPANY ID Management Platform',
+      version: '2.5.0',
+      exportDate: new Date().toISOString(),
+      checksum: 'e7f10a8b',
+      totalEmployees: 2,
+      company: {
+        id: company.id,
+        name: company.name,
+        industry: company.industry,
+      },
+      employees: [
+        {
+          id: `emp-template-01`,
+          companyId: company.id,
+          cardType: 'professional',
+          firstName: 'Jean-Luc',
+          lastName: 'Kabeya',
+          employeeNumber: 'MAT-2026-0001',
+          cardNumber: 'ID-2026-000001',
+          position: 'Directeur des Opérations',
+          department: 'Direction Générale',
+          gender: 'M',
+          status: 'active',
+          issueDate: new Date().toISOString().split('T')[0],
+          expiryDate: `${new Date().getFullYear() + 3}-12-31`,
+          email: 'jeanluc.kabeya@entreprise.cd',
+          phone: '+243 81 234 5678',
+          token: generateSecureToken(),
+        },
+        {
+          id: `emp-template-02`,
+          companyId: company.id,
+          cardType: 'service',
+          firstName: 'Aline',
+          lastName: 'Mbuyi',
+          employeeNumber: 'MAT-2026-0002',
+          cardNumber: 'ID-2026-000002',
+          position: 'Responsable Ressources Humaines',
+          department: 'Ressources Humaines',
+          gender: 'F',
+          status: 'active',
+          issueDate: new Date().toISOString().split('T')[0],
+          expiryDate: `${new Date().getFullYear() + 3}-12-31`,
+          email: 'aline.mbuyi@entreprise.cd',
+          phone: '+243 82 987 6543',
+          token: generateSecureToken(),
+        },
+      ],
+    };
+
+    const blob = new Blob([JSON.stringify(templateData, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'modele_restauration_unincompany.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExecuteRestoreJson = () => {
+    if (
+      !jsonValidationResult ||
+      !jsonValidationResult.canRestore ||
+      !jsonValidationResult.employees ||
+      jsonValidationResult.employees.length === 0
+    ) {
+      alert('Veuillez charger ou coller une sauvegarde JSON valide avec des données exploitables.');
+      return;
+    }
+
+    if (jsonValidationResult.corruptedRecordsCount > 0 && !ignoreCorrupted) {
+      alert(
+        'Veuillez activer l’option d’exclusion des fiches corrompues ou corriger le fichier avant d’appliquer la restauration.'
+      );
+      return;
+    }
+
+    const imported = jsonValidationResult.employees;
+    const merged = mergeEmployeeDatabases(employees, imported, jsonRestoreMode);
+
+    if (onRestoreEmployees) {
+      onRestoreEmployees(merged);
+    } else {
+      if (jsonRestoreMode === 'replace') {
+        employees.forEach((e) => onDeleteEmployee(e.id));
+        imported.forEach((e) => onAddEmployee(e));
+      } else {
+        merged.forEach((e) => {
+          const exists = employees.some((ex) => ex.id === e.id);
+          if (exists) onUpdateEmployee(e);
+          else onAddEmployee(e);
+        });
+      }
+    }
+
+    const corruptDetail =
+      jsonValidationResult.corruptedRecordsCount > 0
+        ? ` (${jsonValidationResult.corruptedRecordsCount} fiche(s) corrompue(s) exclue(s) par sécurité)`
+        : '';
+    const repairDetail =
+      jsonValidationResult.repairedRecordsCount > 0
+        ? ` (${jsonValidationResult.repairedRecordsCount} anomalie(s) mineure(s) corrigée(s) automatiquement)`
+        : '';
+
+    alert(
+      `Restauration terminée avec succès : ${imported.length} collaborateur(s) ${
+        jsonRestoreMode === 'replace' ? 'remplacés' : 'fusionnés'
+      } dans le registre !${corruptDetail}${repairDetail}`
+    );
+    setIsJsonModalOpen(false);
+    setJsonInputText('');
+    setJsonFileName('');
+    setJsonValidationResult(null);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Bar */}
@@ -558,6 +750,32 @@ export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* JSON Persistence Suite (Export & Restore) */}
+          <button
+            type="button"
+            onClick={handleExportJson}
+            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-xl flex items-center space-x-1.5 border border-emerald-200 transition-colors shadow-2xs"
+            title="Télécharger une sauvegarde chiffrée et intègre au format JSON"
+          >
+            <ArrowDownToLine className="w-4 h-4" />
+            <span>Sauvegarde JSON</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsJsonModalOpen(true);
+              setJsonInputText('');
+              setJsonFileName('');
+              setJsonValidationResult(null);
+            }}
+            className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl flex items-center space-x-1.5 border border-amber-200 transition-colors shadow-2xs"
+            title="Restaurer ou fusionner des collaborateurs depuis un fichier JSON"
+          >
+            <ArrowUpFromLine className="w-4 h-4" />
+            <span>Restaurer JSON</span>
+          </button>
+
           {/* Mass Photos Importer */}
           <button
             type="button"
@@ -1431,6 +1649,449 @@ export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
               >
                 Lancer l'importation
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* JSON Restore / Backup Import Modal with Structural Verification */}
+      {isJsonModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                  <FileJson className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Restauration & Vérification Structurelle JSON
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Contrôle d'intégrité cryptographique, validation de schéma et protection anti-corruption.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplateJson}
+                  className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center space-x-1"
+                  title="Télécharger un modèle JSON type pour référence"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Modèle JSON</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsJsonModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="py-4 space-y-4 overflow-y-auto flex-1">
+              {/* File Dropzone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingJson(true);
+                }}
+                onDragLeave={() => setIsDraggingJson(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingJson(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleJsonFileSelect(e.dataTransfer.files[0]);
+                  }
+                }}
+                onClick={() => jsonFileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors ${
+                  isDraggingJson
+                    ? 'border-indigo-500 bg-indigo-50/50'
+                    : 'border-slate-200 hover:border-indigo-400 bg-slate-50/60'
+                }`}
+              >
+                <input
+                  ref={jsonFileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleJsonFileSelect(e.target.files[0]);
+                    }
+                  }}
+                />
+                <ArrowUpFromLine className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                <p className="text-xs font-bold text-slate-700">
+                  {jsonFileName ? (
+                    <span className="text-indigo-600">Fichier chargé : {jsonFileName}</span>
+                  ) : (
+                    'Cliquez ou glissez-déposez votre fichier .json ici'
+                  )}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Archives officielles UNINCOMPANY avec hash SHA-256 ou tableaux d'employés
+                </p>
+              </div>
+
+              {/* Textarea Fallback */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Ou collez directement le contenu JSON brut :
+                </label>
+                <textarea
+                  rows={3}
+                  value={jsonInputText}
+                  onChange={(e) => handleJsonTextChange(e.target.value)}
+                  placeholder='{"app": "UNINCOMPANY ID Management Platform", "employees": [...]}'
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Structural Verification Dashboard */}
+              {jsonValidationResult && (
+                <div className="space-y-3">
+                  {/* Status Banner */}
+                  {jsonValidationResult.canRestore &&
+                  jsonValidationResult.corruptedRecordsCount === 0 &&
+                  (jsonValidationResult.checksumStatus === 'verified' ||
+                    jsonValidationResult.checksumStatus === 'absent') ? (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-2 text-emerald-800 font-bold text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Structure 100% conforme et données intègres : prêt pour la restauration.
+                      </span>
+                    </div>
+                  ) : jsonValidationResult.canRestore ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start space-x-2 text-amber-800 text-xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">
+                          Restauration partielle possible avec anomalies
+                        </span>
+                        <span className="text-[11px] text-amber-700">
+                          {jsonValidationResult.validRecordsCount} fiche(s) valide(s) exploitable(s).{' '}
+                          {jsonValidationResult.corruptedRecordsCount > 0 &&
+                            `${jsonValidationResult.corruptedRecordsCount} fiche(s) corrompue(s) seront exclues.`}
+                          {jsonValidationResult.checksumStatus === 'mismatch' &&
+                            ' Empreinte d’intégrité modifiée.'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-2 text-red-700 text-xs">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">
+                          Fichier non conforme ou données corrompues
+                        </span>
+                        <span className="text-[11px] text-red-600 block mt-0.5">
+                          {jsonValidationResult.error ||
+                            'Le document fourni ne respecte pas le format requis.'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4-Metric Diagnostic Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Format
+                      </span>
+                      <span className="font-bold text-slate-800 text-[11px] line-clamp-1">
+                        {jsonValidationResult.format === 'unincompany_envelope'
+                          ? 'Archive v2.5'
+                          : jsonValidationResult.format === 'raw_employee_array'
+                          ? 'Tableau JSON'
+                          : 'Inconnu'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Contrôle Intégrité
+                      </span>
+                      <div className="flex items-center space-x-1">
+                        {jsonValidationResult.checksumStatus === 'verified' ? (
+                          <span className="text-emerald-700 font-bold text-[11px] flex items-center space-x-1">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Certifié</span>
+                          </span>
+                        ) : jsonValidationResult.checksumStatus === 'mismatch' ? (
+                          <span className="text-amber-700 font-bold text-[11px] flex items-center space-x-1">
+                            <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Altéré</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 font-medium text-[11px]">
+                            Non signé
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Fiches Conformes
+                      </span>
+                      <span className="font-bold text-emerald-600 text-[11px]">
+                        {jsonValidationResult.validRecordsCount} / {jsonValidationResult.totalRecordsFound}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                        Anomalies
+                      </span>
+                      <span
+                        className={`font-bold text-[11px] ${
+                          jsonValidationResult.corruptedRecordsCount > 0
+                            ? 'text-red-600'
+                            : jsonValidationResult.repairedRecordsCount > 0
+                            ? 'text-amber-600'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {jsonValidationResult.corruptedRecordsCount} rejetée(s)
+                        {jsonValidationResult.repairedRecordsCount > 0 &&
+                          ` · ${jsonValidationResult.repairedRecordsCount} réparée(s)`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Metadata Header (if present) */}
+                  {jsonValidationResult.metadata && (
+                    <div className="p-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-[11px] grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {jsonValidationResult.metadata.companyName && (
+                        <div>
+                          <span className="text-slate-400 text-[9px] uppercase block font-bold">
+                            Organisation Source
+                          </span>
+                          <span className="text-slate-800 font-bold">
+                            {jsonValidationResult.metadata.companyName}
+                          </span>
+                        </div>
+                      )}
+                      {jsonValidationResult.metadata.exportDate && (
+                        <div>
+                          <span className="text-slate-400 text-[9px] uppercase block font-bold">
+                            Date d'Export
+                          </span>
+                          <span className="text-slate-700">
+                            {new Date(jsonValidationResult.metadata.exportDate).toLocaleString('fr-FR')}
+                          </span>
+                        </div>
+                      )}
+                      {jsonValidationResult.calculatedChecksum && (
+                        <div>
+                          <span className="text-slate-400 text-[9px] uppercase block font-bold">
+                            Hash Empreinte
+                          </span>
+                          <span className="font-mono text-indigo-600 font-bold">
+                            {jsonValidationResult.calculatedChecksum}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Corrupted Records Exclusion Confirmation Checkbox */}
+                  {jsonValidationResult.corruptedRecordsCount > 0 && (
+                    <div className="p-3 bg-red-50/70 border border-red-200 rounded-xl space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-red-900 flex items-center space-x-1.5">
+                          <AlertCircle className="w-4 h-4 text-red-600" />
+                          <span>
+                            {jsonValidationResult.corruptedRecordsCount} enregistrement(s) corrompu(s) détecté(s)
+                          </span>
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-red-700 leading-relaxed">
+                        Certains collaborateurs dans le fichier ne possèdent pas les champs d'identité obligatoires (nom ou prénom manquant, ou données non objets). Pour garantir la stabilité de votre registre, ces fiches doivent être exclues.
+                      </p>
+                      <label className="flex items-center space-x-2 pt-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={ignoreCorrupted}
+                          onChange={(e) => setIgnoreCorrupted(e.target.checked)}
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="font-bold text-slate-800 text-xs">
+                          Exclure automatiquement les fiches corrompues et continuer avec les {jsonValidationResult.validRecordsCount} fiches saines
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Toggle Detailed Audit Log */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowDetailedAudit(!showDetailedAudit)}
+                      className="w-full px-3 py-2 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-700 transition-colors"
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-slate-500" />
+                        <span>
+                          Rapport d'audit structurel détaillé (
+                          {jsonValidationResult.issues.length + jsonValidationResult.corruptedRecords.length}{' '}
+                          événements)
+                        </span>
+                      </div>
+                      {showDetailedAudit ? (
+                        <ChevronUp className="w-4 h-4 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                      )}
+                    </button>
+
+                    {showDetailedAudit && (
+                      <div className="p-3 bg-white space-y-2 max-h-48 overflow-y-auto text-xs divide-y divide-slate-100">
+                        {/* Corrupted items list */}
+                        {jsonValidationResult.corruptedRecords.map((cr) => (
+                          <div key={cr.index} className="pt-2 first:pt-0">
+                            <div className="flex items-center space-x-1.5 text-red-700 font-bold text-[11px]">
+                              <span className="px-1.5 py-0.5 bg-red-100 text-red-800 rounded text-[9px] uppercase">
+                                Rejeté
+                              </span>
+                              <span>{cr.identifier}</span>
+                            </div>
+                            <ul className="list-disc list-inside text-[11px] text-red-600 pl-2 mt-0.5">
+                              {cr.reasons.map((r, rIdx) => (
+                                <li key={rIdx}>{r}</li>
+                              ))}
+                            </ul>
+                            <p className="text-[10px] font-mono text-slate-400 truncate mt-0.5">
+                              Extrait brut : {cr.rawSnippet}
+                            </p>
+                          </div>
+                        ))}
+
+                        {/* Structural issues list */}
+                        {jsonValidationResult.issues.map((iss, iIdx) => (
+                          <div key={iIdx} className="pt-2 first:pt-0 flex items-start space-x-2 text-[11px]">
+                            {iss.severity === 'error' ? (
+                              <span className="px-1.5 py-0.5 bg-red-100 text-red-800 rounded text-[9px] uppercase shrink-0 mt-0.5">
+                                Erreur
+                              </span>
+                            ) : iss.severity === 'warning' ? (
+                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] uppercase shrink-0 mt-0.5">
+                                {iss.autoRepaired ? 'Auto-Réparé' : 'Alerte'}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[9px] uppercase shrink-0 mt-0.5">
+                                Info
+                              </span>
+                            )}
+                            <div className="text-slate-600">
+                              <span>{iss.message}</span>
+                            </div>
+                          </div>
+                        ))}
+
+                        {jsonValidationResult.corruptedRecords.length === 0 &&
+                          jsonValidationResult.issues.length === 0 && (
+                            <p className="text-[11px] text-slate-400 italic">
+                              Aucune anomalie structurelle détectée dans ce document.
+                            </p>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Restore Mode Choice */}
+              {jsonValidationResult?.canRestore && (
+                <div className="space-y-1.5 pt-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Mode d'application des données :
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <label
+                      className={`p-2.5 rounded-xl border flex flex-col cursor-pointer transition-all ${
+                        jsonRestoreMode === 'merge'
+                          ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-500/20'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 font-bold text-slate-900 mb-0.5">
+                        <input
+                          type="radio"
+                          name="restoreMode"
+                          checked={jsonRestoreMode === 'merge'}
+                          onChange={() => setJsonRestoreMode('merge')}
+                          className="text-indigo-600"
+                        />
+                        <span>Fusionner (Recommandé)</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 pl-5">
+                        Met à jour les matricules existants et ajoute les nouveaux sans effacer les autres collaborateurs.
+                      </span>
+                    </label>
+
+                    <label
+                      className={`p-2.5 rounded-xl border flex flex-col cursor-pointer transition-all ${
+                        jsonRestoreMode === 'replace'
+                          ? 'border-red-600 bg-red-50/60 ring-2 ring-red-500/20'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 font-bold text-slate-900 mb-0.5">
+                        <input
+                          type="radio"
+                          name="restoreMode"
+                          checked={jsonRestoreMode === 'replace'}
+                          onChange={() => setJsonRestoreMode('replace')}
+                          className="text-red-600"
+                        />
+                        <span>Écraser & Remplacer</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 pl-5">
+                        Remplace l'intégralité du personnel actuel par les enregistrements validés du fichier.
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <span className="text-[11px] text-slate-400">
+                {jsonValidationResult
+                  ? `${jsonValidationResult.validRecordsCount} collaborateur(s) prêt(s)`
+                  : 'En attente d’un fichier ou texte JSON'}
+              </span>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsJsonModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !jsonValidationResult?.canRestore ||
+                    (jsonValidationResult.corruptedRecordsCount > 0 && !ignoreCorrupted)
+                  }
+                  onClick={handleExecuteRestoreJson}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold text-xs shadow-md flex items-center space-x-1.5 transition-colors"
+                >
+                  <ArrowUpFromLine className="w-4 h-4" />
+                  <span>
+                    Appliquer la Restauration ({jsonValidationResult?.validRecordsCount || 0})
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
